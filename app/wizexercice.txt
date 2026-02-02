@@ -1,0 +1,5 @@
+Nom: Gaspard Lacave
+Date: 31 Janvier 2026
+Exercice: Wiz Technical Exercise
+Description: Application Todo avec MongoDB déployée sur Kubernetes/EKS
+Architecture: NGINX reverse proxy + Node.js + MongoDB
