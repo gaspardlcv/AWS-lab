@@ -7,13 +7,13 @@ variable "myip" {
   default     = "public-ip/32"
 }
 variable "region" {
-  default = "us-east-1"
+  default = "eu-west-1"
 }
 variable "az1" {
-  default = "us-east-1a"
+  default = "eu-west-1a"
 }
 variable "az2" {
-  default = "us-east-1b"
+  default = "eu-west-1b"
 }
 variable "publiccidr1" {
   default = "10.0.0.0/24"
@@ -26,4 +26,9 @@ variable "privatecidr1" {
 }
 variable "privatecidr2" {
   default = "10.0.11.0/24"
+}
+variable "kubernetes_subnet_cidr" {
+    description = "CIDR block for the Kubernetes subnets"
+    default     = "10.0.10.0/24"
+  
 }

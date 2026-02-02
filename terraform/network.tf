@@ -69,7 +69,7 @@ resource "aws_eip" "nat1" {
     Name = "lab-nat-eip1"
   }
 
-  depends_on = [aws_internet_gateway.myvpc]
+  depends_on = [aws_internet_gateway.igw]
 }
 resource "aws_eip" "nat2" {
   domain = "vpc"
@@ -78,7 +78,7 @@ resource "aws_eip" "nat2" {
     Name = "lab-nat-eip2"
   }
 
-  depends_on = [aws_internet_gateway.myvpc]
+  depends_on = [aws_internet_gateway.igw]
 }
 
 resource "aws_nat_gateway" "nat_gtw1" {
@@ -86,20 +86,20 @@ resource "aws_nat_gateway" "nat_gtw1" {
   subnet_id     = aws_subnet.public_sub1.id
 
   tags = {
-    Name = "lab-naz-gw-1"
+    Name = "lab-nat-gw-1"
   }
 
-  depends_on = [aws_internet_gateway.myvpc]
+  depends_on = [aws_internet_gateway.igw]
 }
 resource "aws_nat_gateway" "nat_gtw2" {
   allocation_id = aws_eip.nat2.id
   subnet_id     = aws_subnet.public_sub2.id
 
   tags = {
-    Name = "lab-naz-gw-2"
+    Name = "lab-nat-gw-2"
   }
 
-  depends_on = [aws_internet_gateway.myvpc]
+  depends_on = [aws_internet_gateway.igw]
 }
 
 // Route Tables
@@ -144,7 +144,7 @@ resource "aws_route" "externalroute1" {
 resource "aws_route" "internalroute1" {
   route_table_id         = aws_route_table.private_rt1.id
   destination_cidr_block = "0.0.0.0/0"
-  network_interface_id   = aws_nat_gateway.nat_gtw1.id
+  nat_gateway_id   = aws_nat_gateway.nat_gtw1.id
 
 }
 
@@ -157,7 +157,7 @@ resource "aws_route" "externalroute2" {
 resource "aws_route" "internalroute2" {
   route_table_id         = aws_route_table.private_rt2.id
   destination_cidr_block = "0.0.0.0/0"
-  network_interface_id   = aws_nat_gateway.nat_gtw2.id
+  nat_gateway_id   = aws_nat_gateway.nat_gtw2.id
 
 }
 
