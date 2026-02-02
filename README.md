@@ -51,9 +51,6 @@ echo $ECR_IMAGE_LATEST
 # 4. Faire le déploiement du Docker
 ./scripts/deploy.sh
 
-# Déploiement Kub
-kubectl apply -f k8s/                    # Déployer sur K8s
-
 kubectl get nodes
 
 # Vérifier wizexercise.txt
@@ -62,5 +59,10 @@ kubectl exec -it $POD -n todo-app -- cat /app/wizexercise.txt
 
 # Accéder à l'application
 curl $LOAD_BALANCER_URL
+
+aws ecr batch-delete-image \
+  --repository-name todo-app \
+  --region eu-west-1 \
+  --image-ids imageTag=latest
 
 kubectl delete namespace todo-app 

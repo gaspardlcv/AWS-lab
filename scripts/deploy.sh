@@ -25,7 +25,7 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📝 Step 2/4: Generating Kubernetes manifests"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-./scripts/get-tf-vars-env.sh
+./scripts/manifest-k8s.sh
 
 # Étape 3 : Configurer kubectl
 echo ""

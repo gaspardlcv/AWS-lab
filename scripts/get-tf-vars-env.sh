@@ -30,7 +30,7 @@ export EKS_CLUSTER_NAME="$(terraform output -raw eks_cluster_name)"
 
 # Load Balancer
 export LOAD_BALANCER_DNS="$(terraform output -raw load_balancer_dns)"
-export LOAD_BALANCER_URL="http://\$(terraform output -raw load_balancer_dns)"
+export LOAD_BALANCER_URL="http://$(terraform output -raw load_balancer_dns)"
 EOF
 
 cd ..

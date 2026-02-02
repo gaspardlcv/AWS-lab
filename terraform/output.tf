@@ -97,7 +97,6 @@ output "alb_security_group_id" {
 output "mongodb_private_ip" {
   description = "Private IP of MongoDB VM"
   value       = aws_instance.mongodb.private_ip
-  sensitive   = true
 }
 
 output "mongodb_public_ip" {
