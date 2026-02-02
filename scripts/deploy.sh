@@ -25,7 +25,7 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📝 Step 2/4: Generating Kubernetes manifests"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-./scripts/manifest-k8s.sh
+./scripts/get-tf-vars-env.sh
 
 # Étape 3 : Configurer kubectl
 echo ""
@@ -34,12 +34,26 @@ echo "⚙️  Step 3/4: Configuring kubectl"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_REGION
 
-# Étape 4 : Déployer sur Kubernetes
+# Étape 4 : Déployer sur Kubernetes (MODIFIÉ - avec attente)
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "☸️  Step 4/4: Deploying to Kubernetes"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-kubectl apply -f k8s/
+
+# Créer le namespace en premier et attendre
+echo "📦 Creating namespace..."
+kubectl apply -f k8s/namespace.yaml
+
+# Attendre que le namespace soit prêt
+echo "⏳ Waiting for namespace to be ready..."
+kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/todo-app --timeout=30s
+
+# Déployer le reste
+echo "📦 Deploying resources..."
+kubectl apply -f k8s/rbac.yaml
+kubectl apply -f k8s/secret.yaml
+kubectl apply -f k8s/service.yaml
+kubectl apply -f k8s/deployment.yaml
 
 # Attendre que le déploiement soit prêt
 echo ""

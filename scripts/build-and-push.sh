@@ -18,13 +18,19 @@ if [ -z "$ECR_REPOSITORY_URL" ]; then
     exit 1
 fi
 
+docker buildx create --name multiarch --driver docker-container --use 2>/dev/null || docker buildx use multiarch
+
 echo "🔐 Logging into ECR..."
 aws ecr get-login-password --region $AWS_REGION | \
   docker login --username AWS --password-stdin $ECR_REPOSITORY_URL
 
 echo "🏗️  Building Docker image..."
 cd app/
-docker build -t todo-app:latest .
+docker buildx build \
+  --platform linux/amd64 \
+  -t $ECR_REPOSITORY_URL:latest \
+  --push \
+  .
 
 echo "🏷️  Tagging image..."
 docker tag todo-app:latest $ECR_REPOSITORY_URL:latest

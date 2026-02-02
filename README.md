@@ -11,6 +11,10 @@ nano ~/.aws/credentials
 
 aws sts get-caller-identity
 
+terraform init
+terraform plan
+terraform apply
+
 Vérification fichier docker
 
 3.4 Vérification du fichier dans le container
@@ -32,7 +36,7 @@ cd ..
 # Récupérez les variables d'environnement 
 
 # 1. Générer le fichier .env depuis Terraform
-./scripts/export-terraform-vars.sh
+./scripts/get-tf-vars-env.sh
 
 # 2. Charger les variables dans votre session
 source .env
@@ -58,3 +62,5 @@ kubectl exec -it $POD -n todo-app -- cat /app/wizexercise.txt
 
 # Accéder à l'application
 curl $LOAD_BALANCER_URL
+
+kubectl delete namespace todo-app 

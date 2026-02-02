@@ -7,6 +7,9 @@ echo "🔄 Exporting Terraform outputs to environment variables..."
 # Se placer dans le dossier terraform
 cd terraform
 
+# Récupérer la région depuis Terraform
+AWS_REGION=$(terraform output -raw aws_region 2>/dev/null || echo "eu-west-1")
+
 # Récupérer les outputs Terraform et créer le fichier .env
 cat > ../.env <<EOF
 # Generated automatically from Terraform outputs
@@ -18,16 +21,16 @@ export MONGODB_PRIVATE_IP="$(terraform output -raw mongodb_private_ip)"
 
 # ECR Configuration
 export ECR_REPOSITORY_URL="$(terraform output -raw ecr_repository_url)"
-export ECR_IMAGE_LATEST="${ECR_REPOSITORY_URL}:latest"
+export ECR_IMAGE_LATEST="\${ECR_REPOSITORY_URL}:latest"
 
 # AWS Configuration
-export AWS_REGION="us-east-1"
+export AWS_REGION="$AWS_REGION"
 export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 export EKS_CLUSTER_NAME="$(terraform output -raw eks_cluster_name)"
 
 # Load Balancer
 export LOAD_BALANCER_DNS="$(terraform output -raw load_balancer_dns)"
-export LOAD_BALANCER_URL="http://$(terraform output -raw load_balancer_dns)"
+export LOAD_BALANCER_URL="http://\$(terraform output -raw load_balancer_dns)"
 EOF
 
 cd ..
