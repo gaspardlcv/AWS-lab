@@ -134,7 +134,7 @@ output "configure_kubectl_command" {
 # MongoDB URI
 output "mongodb_uri" {
   description = "MongoDB connection URI"
-  value       = "mongodb://admin:P@ssw0rd123@${aws_instance.mongodb.private_ip}:27017/"
+  value       = "mongodb://admin:P%40ssw0rd123@${aws_instance.mongodb.private_ip}:27017/"
   sensitive   = true
 }
 

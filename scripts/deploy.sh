@@ -77,4 +77,4 @@ echo "   $LOAD_BALANCER_URL"
 echo ""
 echo "🔍 Verify wizexercise.txt in running pod:"
 POD_NAME=$(kubectl get pods -n todo-app -l app=todo-app -o jsonpath='{.items[0].metadata.name}')
-echo "   kubectl exec -it $POD_NAME -n todo-app -- cat /app/wizexercise.txt"
+echo "   kubectl exec -it $POD_NAME -n todo-app -- cat /app/wizexercice.txt"

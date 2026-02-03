@@ -55,7 +55,7 @@ kubectl get nodes
 
 # Vérifier wizexercise.txt
 POD=$(kubectl get pod -n todo-app -l app=todo-app -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -it $POD -n todo-app -- cat /app/wizexercise.txt
+kubectl exec -it $POD -n todo-app -- cat /app/wizexercice.txt
 
 # Accéder à l'application
 curl $LOAD_BALANCER_URL

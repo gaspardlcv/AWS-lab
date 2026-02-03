@@ -63,10 +63,10 @@ resource "aws_lb" "main" {
 # Target Group pour l'application Kubernetes
 resource "aws_lb_target_group" "app" {
   name        = "lab-tg"
-  port        = 80
+  port        = 30080              # ← MODIFIÉ : Port du NodePort Kubernetes
   protocol    = "HTTP"
   vpc_id      = aws_vpc.myvpc.id
-  target_type = "ip"  # Important pour EKS
+  target_type = "instance"         # ← MODIFIÉ : De "ip" à "instance"
 
   health_check {
     enabled             = true
@@ -74,8 +74,9 @@ resource "aws_lb_target_group" "app" {
     unhealthy_threshold = 2
     timeout             = 5
     interval            = 30
-    path                = "/"
+    path                = "/"      # ← Vérifiez que votre app répond sur /
     protocol            = "HTTP"
+    port                = "30080"  # ← AJOUTÉ : Port pour le health check
     matcher             = "200-299"
   }
 
@@ -117,3 +118,31 @@ resource "aws_lb_listener" "http" {
 #     Name = "https-listener"
 #   }
 # }
+
+# Data source pour récupérer les instances EKS
+data "aws_instances" "eks_nodes" {
+  filter {
+    name   = "tag:eks:cluster-name"
+    values = [module.eks.cluster_name]
+  }
+
+  filter {
+    name   = "instance-state-name"
+    values = ["running"]
+  }
+
+  depends_on = [module.eks]
+}
+
+# Attacher automatiquement les worker nodes au Target Group
+resource "aws_lb_target_group_attachment" "eks_nodes" {
+  count            = length(data.aws_instances.eks_nodes.ids)
+  target_group_arn = aws_lb_target_group.app.arn
+  target_id        = data.aws_instances.eks_nodes.ids[count.index]
+  port             = 30080
+
+  depends_on = [
+    aws_lb_target_group.app,
+    module.eks
+  ]
+}
