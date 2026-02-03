@@ -18,7 +18,7 @@ resource "aws_security_group" "mongodb_sg" {
     from_port   = 27017
     to_port     = 27017
     protocol    = "tcp"
-    cidr_blocks = [var.kubernetes_subnet_cidr]
+    security_groups = [module.eks.node_security_group_id]
     description = "MongoDB from Kubernetes"
   }
 
@@ -97,48 +97,98 @@ resource "aws_instance" "mongodb" {
   iam_instance_profile   = aws_iam_instance_profile.mongodb_profile.name
   
   key_name = "lab"
+  user_data_replace_on_change = true
 
+# IMPORTANT: Le heredoc doit commencer à la colonne 0, pas indenté !
   user_data = <<-EOF
-              #!/bin/bash
-              # Installation MongoDB version obsolète (4.4 au lieu de 7.0)
-              wget -qO - https://www.mongodb.org/static/pgp/server-4.4.asc | sudo apt-key add -
-              echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/4.4 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.4.list
-              
-              sudo apt-get update
-              sudo apt-get install -y mongodb-org
-              
-              # Configuration MongoDB avec authentification
-              sudo sed -i 's/bindIp: 127.0.0.1/bindIp: 0.0.0.0/' /etc/mongod.conf
-              echo "security:\n  authorization: enabled" | sudo tee -a /etc/mongod.conf
-              
-              sudo systemctl start mongod
-              sudo systemctl enable mongod
-              
-              # Créer utilisateur admin
-              mongosh <<MONGO
-              use admin
-              db.createUser({
-                user: "admin",
-                pwd: "P@ssw0rd123",
-                roles: [ { role: "userAdminAnyDatabase", db: "admin" }, "readWriteAnyDatabase" ]
-              })
-              MONGO
-              
-              # Script de backup quotidien
-              cat > /usr/local/bin/mongodb-backup.sh <<'BACKUP'
-              #!/bin/bash
-              TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-              mongodump --out /tmp/backup-$TIMESTAMP
-              tar -czf /tmp/mongodb-backup-$TIMESTAMP.tar.gz /tmp/backup-$TIMESTAMP
-              aws s3 cp /tmp/mongodb-backup-$TIMESTAMP.tar.gz s3://${aws_s3_bucket.backups.id}/
-              rm -rf /tmp/backup-$TIMESTAMP /tmp/mongodb-backup-$TIMESTAMP.tar.gz
-              BACKUP
-              
-              chmod +x /usr/local/bin/mongodb-backup.sh
-              
-              # Cron job pour backup quotidien
-              echo "0 2 * * * /usr/local/bin/mongodb-backup.sh" | crontab -
-              EOF
+#!/bin/bash
+set -x
+exec > >(tee /var/log/user-data.log) 2>&1
+
+echo "=== MongoDB Installation Script Started at $(date) ==="
+
+echo "=== Installing libssl1.1 ==="
+cd /tmp
+wget -q http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb
+dpkg -i libssl1.1_1.1.1f-1ubuntu2_amd64.deb
+
+echo "=== Adding MongoDB Repository ==="
+wget -qO - https://www.mongodb.org/static/pgp/server-4.4.asc | apt-key add -
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/4.4 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-4.4.list
+
+echo "=== Installing MongoDB and AWS CLI ==="
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y mongodb-org awscli
+
+echo "=== Creating MongoDB Configuration ==="
+cat > /etc/mongod.conf <<'MONGODCONF'
+storage:
+  dbPath: /var/lib/mongodb
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod.log
+net:
+  port: 27017
+  bindIp: 0.0.0.0
+processManagement:
+  timeZoneInfo: /usr/share/zoneinfo
+security:
+  authorization: enabled
+MONGODCONF
+
+echo "=== Starting MongoDB ==="
+systemctl daemon-reload
+systemctl start mongod
+systemctl enable mongod
+
+echo "Waiting for MongoDB to start..."
+for i in {1..30}; do
+  if systemctl is-active --quiet mongod; then
+    echo "MongoDB is running"
+    break
+  fi
+  sleep 2
+done
+
+sleep 10
+
+echo "=== Creating MongoDB Admin User ==="
+mongo --eval "
+  db = db.getSiblingDB('admin');
+  db.createUser({
+    user: 'admin',
+    pwd: 'P@ssw0rd123',
+    roles: [ 
+      { role: 'userAdminAnyDatabase', db: 'admin' }, 
+      'readWriteAnyDatabase' 
+    ]
+  });
+" || echo "User creation failed or user already exists"
+
+echo "=== Creating Backup Script ==="
+cat > /usr/local/bin/mongodb-backup.sh <<'BACKUP'
+#!/bin/bash
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+mongodump -u admin -p 'P@ssw0rd123' --authenticationDatabase admin --out /tmp/backup-$TIMESTAMP
+tar -czf /tmp/mongodb-backup-$TIMESTAMP.tar.gz -C /tmp backup-$TIMESTAMP
+aws s3 cp /tmp/mongodb-backup-$TIMESTAMP.tar.gz s3://${aws_s3_bucket.backups.id}/ --region eu-west-1
+rm -rf /tmp/backup-$TIMESTAMP /tmp/mongodb-backup-$TIMESTAMP.tar.gz
+echo "Backup completed: $TIMESTAMP" >> /var/log/mongodb-backup.log
+BACKUP
+
+chmod +x /usr/local/bin/mongodb-backup.sh
+
+echo "=== Setting up Cron Job ==="
+(crontab -l 2>/dev/null; echo "0 2 * * * /usr/local/bin/mongodb-backup.sh") | crontab -
+
+echo "=== Verifying MongoDB Installation ==="
+systemctl status mongod >> /var/log/user-data.log 2>&1
+mongo --version >> /var/log/user-data.log 2>&1
+
+echo "=== MongoDB Installation Completed at $(date) ==="
+echo "SUCCESS" > /var/log/mongodb-install-complete
+EOF
 
   tags = {
     Name = "MongoDB-Server-Vulnerable"

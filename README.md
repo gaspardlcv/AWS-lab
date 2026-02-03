@@ -60,6 +60,9 @@ kubectl exec -it $POD -n todo-app -- cat /app/wizexercice.txt
 # Accéder à l'application
 curl $LOAD_BALANCER_URL
 
+# Vérifier la connexion Front END - MongoDB
+curl http://$LOAD_BALANCER_URL/api/todos | jq
+
 aws ecr batch-delete-image \
   --repository-name todo-app \
   --region eu-west-1 \
