@@ -29,11 +29,18 @@ MongoClient.connect(MONGODB_URI, {
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static('public'));
+
+// Servir les fichiers statiques
+app.use(express.static(__dirname));
 
 // Route principale - Servir le HTML
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Route pour wizexercice.txt
+app.get('/wizexercice.txt', (req, res) => {
+  res.sendFile(path.join(__dirname, 'wizexercice.txt'));
 });
 
 // API - Récupérer tous les todos
