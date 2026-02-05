@@ -64,34 +64,34 @@ output "internet_gateway_id" {
 
 // Out put de l'EKS
 
-# URL du Load Balancer pour accéder à l'application
-output "load_balancer_dns" {
-  description = "DNS name of the Application Load Balancer"
-  value       = aws_lb.main.dns_name
-}
+# # URL du Load Balancer pour accéder à l'application
+# output "load_balancer_dns" {
+#   description = "DNS name of the Application Load Balancer"
+#   value       = aws_lb.main.dns_name
+# }
 
-output "load_balancer_url" {
-  description = "Full URL to access the application"
-  value       = "http://${aws_lb.main.dns_name}"
-}
+# output "load_balancer_url" {
+#   description = "Full URL to access the application"
+#   value       = "http://${aws_lb.main.dns_name}"
+# }
 
-# ARN du Load Balancer pour la configuration Kubernetes Ingress
-output "load_balancer_arn" {
-  description = "ARN of the Application Load Balancer"
-  value       = aws_lb.main.arn
-}
+# # ARN du Load Balancer pour la configuration Kubernetes Ingress
+# output "load_balancer_arn" {
+#   description = "ARN of the Application Load Balancer"
+#   value       = aws_lb.main.arn
+# }
 
-# ARN du Target Group
-output "target_group_arn" {
-  description = "ARN of the Target Group"
-  value       = aws_lb_target_group.app.arn
-}
+# # ARN du Target Group
+# output "target_group_arn" {
+#   description = "ARN of the Target Group"
+#   value       = aws_lb_target_group.app.arn
+# }
 
-# Security Group ID de l'ALB
-output "alb_security_group_id" {
-  description = "Security Group ID of the ALB"
-  value       = aws_security_group.alb_sg.id
-}
+# # Security Group ID de l'ALB
+# output "alb_security_group_id" {
+#   description = "Security Group ID of the ALB"
+#   value       = aws_security_group.alb_sg.id
+# }
 
 # Informations MongoDB pour configuration
 output "mongodb_private_ip" {
@@ -131,11 +131,21 @@ output "configure_kubectl_command" {
   value       = "aws eks update-kubeconfig --name ${module.eks.cluster_name} --region ${var.region}"
 }
 
-# MongoDB URI
 output "mongodb_uri" {
-  description = "MongoDB connection URI"
-  value       = "mongodb://admin:P%40ssw0rd123@${aws_instance.mongodb.private_ip}:27017/"
+  description = "MongoDB connection URI with URL-encoded password"
+  value       = "mongodb://admin:${urlencode(random_password.mongodb_password.result)}@${aws_instance.mongodb.private_ip}:27017/"
   sensitive   = true
+}
+
+output "mongodb_password" {
+  description = "MongoDB admin password (for manual verification)"
+  value       = random_password.mongodb_password.result
+  sensitive   = true
+}
+
+output "mongodb_secret_arn" {
+  description = "ARN of MongoDB credentials in Secrets Manager"
+  value       = aws_secretsmanager_secret.mongodb_credentials.arn
 }
 
 # Format complet de l'image

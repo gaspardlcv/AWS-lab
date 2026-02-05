@@ -96,7 +96,7 @@ resource "aws_instance" "mongodb" {
   vpc_security_group_ids = [aws_security_group.mongodb_sg.id]
   iam_instance_profile   = aws_iam_instance_profile.mongodb_profile.name
   
-  key_name = "lab"
+  key_name = "labfinal"
   user_data_replace_on_change = true
 
 # IMPORTANT: Le heredoc doit commencer à la colonne 0, pas indenté !
@@ -158,7 +158,7 @@ mongo --eval "
   db = db.getSiblingDB('admin');
   db.createUser({
     user: 'admin',
-    pwd: 'P@ssw0rd123',
+    pwd: '${random_password.mongodb_password.result}',
     roles: [ 
       { role: 'userAdminAnyDatabase', db: 'admin' }, 
       'readWriteAnyDatabase' 
@@ -170,7 +170,7 @@ echo "=== Creating Backup Script ==="
 cat > /usr/local/bin/mongodb-backup.sh <<'BACKUP'
 #!/bin/bash
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-mongodump -u admin -p 'P@ssw0rd123' --authenticationDatabase admin --out /tmp/backup-$TIMESTAMP
+mongodump -u admin -p '${random_password.mongodb_password.result}' --authenticationDatabase admin --out /tmp/backup-$TIMESTAMP
 tar -czf /tmp/mongodb-backup-$TIMESTAMP.tar.gz -C /tmp backup-$TIMESTAMP
 aws s3 cp /tmp/mongodb-backup-$TIMESTAMP.tar.gz s3://${aws_s3_bucket.backups.id}/ --region eu-west-1
 rm -rf /tmp/backup-$TIMESTAMP /tmp/mongodb-backup-$TIMESTAMP.tar.gz
