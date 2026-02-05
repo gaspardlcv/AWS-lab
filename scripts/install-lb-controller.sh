@@ -1,4 +1,5 @@
 #!/bin/bash
+
 set -e
 
 echo "📦 Installing AWS Load Balancer Controller"

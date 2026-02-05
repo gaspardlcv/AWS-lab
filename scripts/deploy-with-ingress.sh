@@ -7,20 +7,20 @@ echo ""
 # ============================================
 # ÉTAPE 1: Terraform Apply
 # ============================================
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "📦 STEP 1/6: Deploying Infrastructure with Terraform"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+# echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+# echo "📦 STEP 1/6: Deploying Infrastructure with Terraform"
+# echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 cd terraform
 
-# Ajouter terraform-lb-controller.tf au projet
-if [ ! -f "aws-lb-controller.tf" ]; then
-  echo "⚠️  Adding aws-lb-controller.tf to Terraform..."
-  cp ../outputs/terraform-lb-controller.tf ./aws-lb-controller.tf
-fi
+# # Ajouter terraform-lb-controller.tf au projet
+# if [ ! -f "aws-lb-controller.tf" ]; then
+#   echo "⚠️  Adding aws-lb-controller.tf to Terraform..."
+#   cp ../outputs/terraform-lb-controller.tf ./aws-lb-controller.tf
+# fi
 
-terraform init
-terraform apply -auto-approve
+# terraform init
+# terraform apply -auto-approve
 
 # Récupérer les outputs
 MONGODB_URI=$(terraform output -raw mongodb_uri)
@@ -32,7 +32,7 @@ AWS_REGION="eu-west-1"
 
 cd ..
 
-echo "✅ Infrastructure deployed"
+# echo "✅ Infrastructure deployed"
 
 # ============================================
 # ÉTAPE 2: Installer AWS Load Balancer Controller
@@ -99,7 +99,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 # Remplacer l'URL de l'image
 sed "s|YOUR_ECR_REPO_URL:latest|${ECR_REPO_URL}:latest|g" \
-  k8s/manifests-ingress.yaml > k8s/manifests-deployed.yaml
+  k8s/manifest-k8s.yaml > k8s/manifests-deployed.yaml
 
 kubectl apply -f k8s/manifests-deployed.yaml
 

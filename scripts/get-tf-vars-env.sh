@@ -28,9 +28,9 @@ export AWS_REGION="$AWS_REGION"
 export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 export EKS_CLUSTER_NAME="$(terraform output -raw eks_cluster_name)"
 
-# Load Balancer
-export LOAD_BALANCER_DNS="$(terraform output -raw load_balancer_dns)"
-export LOAD_BALANCER_URL="http://$(terraform output -raw load_balancer_dns)"
+export LB_CONTROLLER_ROLE_ARN=$(terraform output -raw lb_controller_role_arn)
+export VPC_ID=$(terraform output -raw vpc_id)
+
 EOF
 
 cd ..

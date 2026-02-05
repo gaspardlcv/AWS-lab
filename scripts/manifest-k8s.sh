@@ -35,7 +35,7 @@ metadata:
   namespace: todo-app
 type: Opaque
 stringData:
-  MONGODB_URI: "$MONGODB_URI"
+  MONGODB_URI: ""
 EOF
 
 # 3. Service Account
@@ -119,7 +119,7 @@ spec:
           failureThreshold: 3
 EOF
 
-# 5. Service (NodePort)
+# Service ClusterIP
 cat > k8s/service.yaml <<EOF
 apiVersion: v1
 kind: Service
@@ -129,15 +129,47 @@ metadata:
   labels:
     app: todo-app
 spec:
-  type: NodePort
+  type: ClusterIP 
   selector:
     app: todo-app
   ports:
   - port: 80
-    targetPort: 80
-    nodePort: 30080
+    targetPort: 3000
     protocol: TCP
     name: http
+EOF
+
+# Ingress - Crée automatiquement un ALB
+cat > k8s/alb.yaml <<EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-app-ingress
+  namespace: todo-app
+  annotations:
+    # Configuration AWS Load Balancer Controller
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
+    alb.ingress.kubernetes.io/success-codes: '200'
+    alb.ingress.kubernetes.io/healthy-threshold-count: '2'
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: '2'
+    # Tags pour l'ALB
+    alb.ingress.kubernetes.io/tags: Environment=lab,ManagedBy=kubernetes
+spec:
+  ingressClassName: alb
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: todo-app-service
+            port:
+              number: 80
 EOF
 
 echo ""
