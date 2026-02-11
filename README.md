@@ -69,3 +69,36 @@ aws ecr batch-delete-image \
   --image-ids imageTag=latest
 
 kubectl delete namespace todo-app 
+
+
+
+### Démo 
+
+# 1. Vérifier que tout fonctionne
+make check-prereq
+
+# 2. Tester la démo complète
+make demo-all
+make info           # Montrer l'infrastructure
+make check-prereq   # Vérifier que tout est OK
+make demo-vm # mongodb
+make demo-k8s #demo-app
+make demo-vulns 
+# Avoir le terminal prêt pour des commandes ad-hoc
+make shell-pod     # Si on vous demande de montrer l'intérieur d'un pod
+make ssh-mongodb   # Si on vous demande d'accéder à MongoDB
+# Vérifier version MongoDB
+make vm-mongodb-version
+
+# Montrer le fichier wizexercice.txt
+make k8s-wizexercice
+
+# Créer un todo pendant la démo
+make app-create-todo
+
+# Montrer l'exploitation S3
+make vuln-s3-public-demo
+
+# Montrer la chaîne d'attaque
+make vuln-exploit-chain
+

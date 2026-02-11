@@ -96,7 +96,7 @@ resource "aws_instance" "mongodb" {
   vpc_security_group_ids = [aws_security_group.mongodb_sg.id]
   iam_instance_profile   = aws_iam_instance_profile.mongodb_profile.name
   
-  key_name = "labfinal"
+  key_name = "labus"
   user_data_replace_on_change = true
 
 # IMPORTANT: Le heredoc doit commencer à la colonne 0, pas indenté !

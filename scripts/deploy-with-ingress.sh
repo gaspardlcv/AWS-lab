@@ -28,7 +28,7 @@ ECR_REPO_URL=$(terraform output -raw ecr_repository_url)
 EKS_CLUSTER_NAME=$(terraform output -raw eks_cluster_name)
 LB_CONTROLLER_ROLE_ARN=$(terraform output -raw lb_controller_role_arn)
 VPC_ID=$(terraform output -raw vpc_id)
-AWS_REGION="eu-west-1"
+AWS_REGION="us-east-1"
 
 cd ..
 
