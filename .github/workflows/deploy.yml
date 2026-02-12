@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: eu-west-1
   EKS_CLUSTER_NAME: lab-cluster
   ECR_REPOSITORY: todo-app
   KUBERNETES_NAMESPACE: todo-app
@@ -107,153 +107,30 @@ jobs:
       - name: Verify cluster access
         run: kubectl get nodes
 
-      - name: Generate Kubernetes manifests
+      - name: Prepare manifest with environment variables
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_IMAGE_LATEST: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
         run: |
-          # Créer le dossier k8s
-          mkdir -p k8s
+          echo "📝 Preparing manifest-k8s.yaml with environment variables..."
           
-          # Namespace
-          cat > k8s/namespace.yaml <<EOF
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: ${{ env.KUBERNETES_NAMESPACE }}
-            labels:
-              name: ${{ env.KUBERNETES_NAMESPACE }}
-          EOF
+          # Remplacer les variables dans le manifest
+          envsubst < k8s/manifest-k8s.yaml > k8s/manifest-k8s-deploy.yaml
           
-          # Secret
-          cat > k8s/secret.yaml <<EOF
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: app-secrets
-            namespace: ${{ env.KUBERNETES_NAMESPACE }}
-          type: Opaque
-          stringData:
-            MONGODB_URI: "$MONGODB_URI"
-          EOF
+          echo "✅ Manifest prepared:"
+          echo "   ECR Image: $ECR_IMAGE_LATEST"
+          echo "   MongoDB: ${MONGODB_URI%%@*}@***"
           
-          # RBAC
-          cat > k8s/rbac.yaml <<EOF
-          apiVersion: v1
-          kind: ServiceAccount
-          metadata:
-            name: todo-app-sa
-            namespace: ${{ env.KUBERNETES_NAMESPACE }}
-          ---
-          apiVersion: rbac.authorization.k8s.io/v1
-          kind: ClusterRoleBinding
-          metadata:
-            name: todo-app-admin-binding
-          roleRef:
-            apiGroup: rbac.authorization.k8s.io
-            kind: ClusterRole
-            name: cluster-admin
-          subjects:
-          - kind: ServiceAccount
-            name: todo-app-sa
-            namespace: ${{ env.KUBERNETES_NAMESPACE }}
-          EOF
-          
-          # Deployment
-          cat > k8s/deployment.yaml <<EOF
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: todo-app
-            namespace: ${{ env.KUBERNETES_NAMESPACE }}
-            labels:
-              app: todo-app
-          spec:
-            replicas: 2
-            selector:
-              matchLabels:
-                app: todo-app
-            template:
-              metadata:
-                labels:
-                  app: todo-app
-              spec:
-                serviceAccountName: todo-app-sa
-                containers:
-                - name: todo-app
-                  image: $ECR_IMAGE_LATEST
-                  imagePullPolicy: Always
-                  ports:
-                  - containerPort: 80
-                    name: http
-                  env:
-                  - name: MONGODB_URI
-                    valueFrom:
-                      secretKeyRef:
-                        name: app-secrets
-                        key: MONGODB_URI
-                  resources:
-                    requests:
-                      memory: "128Mi"
-                      cpu: "100m"
-                    limits:
-                      memory: "256Mi"
-                      cpu: "200m"
-                  livenessProbe:
-                    httpGet:
-                      path: /health
-                      port: 80
-                    initialDelaySeconds: 30
-                    periodSeconds: 10
-                    timeoutSeconds: 5
-                    failureThreshold: 3
-                  readinessProbe:
-                    httpGet:
-                      path: /health
-                      port: 80
-                    initialDelaySeconds: 10
-                    periodSeconds: 5
-                    timeoutSeconds: 3
-                    failureThreshold: 3
-          EOF
-          
-          # Service
-          cat > k8s/service.yaml <<EOF
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: todo-app-service
-            namespace: ${{ env.KUBERNETES_NAMESPACE }}
-            labels:
-              app: todo-app
-          spec:
-            type: NodePort
-            selector:
-              app: todo-app
-            ports:
-            - port: 80
-              targetPort: 80
-              nodePort: 30080
-              protocol: TCP
-              name: http
-          EOF
+          echo ""
+          echo "📋 Final manifest (preview):"
+          head -30 k8s/manifest-k8s-deploy.yaml
 
       - name: Deploy to Kubernetes
         run: |
-          echo "📦 Creating namespace..."
-          kubectl apply -f k8s/namespace.yaml
+          echo "🚀 Deploying to Kubernetes using single manifest file..."
+          kubectl apply -f k8s/manifest-k8s-deploy.yaml
           
-          echo "⏳ Waiting for namespace to be ready..."
-          kubectl wait --for=jsonpath='{.status.phase}'=Active \
-            namespace/${{ env.KUBERNETES_NAMESPACE }} --timeout=30s
-          
-          echo "📦 Deploying resources..."
-          kubectl apply -f k8s/rbac.yaml
-          kubectl apply -f k8s/secret.yaml
-          kubectl apply -f k8s/service.yaml
-          kubectl apply -f k8s/deployment.yaml
-          
+          echo ""
           echo "⏳ Waiting for deployment to be ready..."
           kubectl rollout status deployment/todo-app \
             -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=5m
@@ -271,12 +148,18 @@ jobs:
           echo "🔍 Checking wizexercice.txt in pod:"
           POD_NAME=$(kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} \
             -l app=todo-app -o jsonpath='{.items[0].metadata.name}')
-          kubectl exec -it $POD_NAME -n ${{ env.KUBERNETES_NAMESPACE }} \
-            -- cat /app/wizexercice.txt || echo "File check failed"
+          kubectl exec $POD_NAME -n ${{ env.KUBERNETES_NAMESPACE }} \
+            -- cat /app/wizexercice.txt || echo "⚠️ File check failed"
+          
+          echo ""
+          echo "📝 Pod logs (last 20 lines):"
+          kubectl logs $POD_NAME -n ${{ env.KUBERNETES_NAMESPACE }} --tail=20
 
-      - name: Get Load Balancer URL
+      - name: Display application info
         run: |
-          # Récupérer l'URL du Load Balancer depuis Terraform
-          cd terraform
-          LOAD_BALANCER_URL=$(terraform output -raw load_balancer_dns 2>/dev/null || echo "N/A")
-          echo "🔗 Application URL: http://$LOAD_BALANCER_URL"
+          echo "✅ Deployment completed successfully!"
+          echo ""
+          echo "📦 All resources deployed from: k8s/manifest-k8s.yaml"
+          echo ""
+          echo "🔗 To get your application URL, run locally:"
+          echo "   cd terraform && terraform output -raw load_balancer_url"
