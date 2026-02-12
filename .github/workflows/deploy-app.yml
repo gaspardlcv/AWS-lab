@@ -1,0 +1,261 @@
+name: Deploy Todo App to EKS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/**'
+      - 'k8s/**'
+      - '.github/workflows/deploy-app.yml'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: lab-cluster
+  ECR_REPOSITORY: todo-app
+  K8S_NAMESPACE: todo-app
+
+jobs:
+  deploy:
+    name: Build and Deploy Application
+    runs-on: ubuntu-latest
+    
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      # 1. CHECKOUT CODE
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      # 2. AWS AUTHENTICATION
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: 🔐 Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      # 3. SETUP TERRAFORM (pour récupérer les outputs)
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: 🔧 Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+          terraform_wrapper: false
+
+      - name: 📊 Get Terraform Outputs
+        id: terraform
+        working-directory: ./terraform
+        run: |
+          terraform init -backend=false
+          
+          # Récupérer les outputs depuis le tfstate distant ou local
+          # Note: Vous devrez configurer le backend S3 pour la production
+          
+          # Pour l'instant, on utilise les outputs terraform
+          MONGODB_URI=$(terraform output -raw mongodb_uri 2>/dev/null || echo "")
+          ECR_REPO_URL=$(terraform output -raw ecr_repository_url 2>/dev/null || echo "")
+          LB_CONTROLLER_ROLE_ARN=$(terraform output -raw lb_controller_role_arn 2>/dev/null || echo "")
+          VPC_ID=$(terraform output -raw vpc_id 2>/dev/null || echo "")
+          
+          # Si terraform output échoue, récupérer directement depuis AWS
+          if [ -z "$ECR_REPO_URL" ]; then
+            ECR_REPO_URL=$(aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --query 'repositories[0].repositoryUri' --output text --region ${{ env.AWS_REGION }})
+          fi
+          
+          if [ -z "$LB_CONTROLLER_ROLE_ARN" ]; then
+            LB_CONTROLLER_ROLE_ARN=$(aws iam get-role --role-name aws-load-balancer-controller --query 'Role.Arn' --output text 2>/dev/null || echo "")
+          fi
+          
+          if [ -z "$VPC_ID" ]; then
+            VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=wiz-vpc" --query 'Vpcs[0].VpcId' --output text --region ${{ env.AWS_REGION }})
+          fi
+          
+          # Récupérer MONGODB_URI depuis Secrets Manager
+          if [ -z "$MONGODB_URI" ]; then
+            MONGODB_URI=$(aws secretsmanager get-secret-value --secret-id lab-mongodb-uri --query SecretString --output text --region ${{ env.AWS_REGION }} | jq -r '.MONGODB_URI')
+          fi
+          
+          echo "ecr_repo_url=$ECR_REPO_URL" >> $GITHUB_OUTPUT
+          echo "lb_controller_role_arn=$LB_CONTROLLER_ROLE_ARN" >> $GITHUB_OUTPUT
+          echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
+          echo "mongodb_uri=$MONGODB_URI" >> $GITHUB_OUTPUT
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      # 4. INSTALL AWS LOAD BALANCER CONTROLLER (si pas déjà installé)
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: 🔧 Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.29.0'
+
+      - name: ⚙️ Configure kubectl
+        run: |
+          aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+          kubectl cluster-info
+
+      - name: 🔧 Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: '3.13.0'
+
+      - name: 🎛️ Install/Update AWS Load Balancer Controller
+        run: |
+          # Vérifier si déjà installé
+          if kubectl get deployment -n kube-system aws-load-balancer-controller &>/dev/null; then
+            echo "⚠️ AWS Load Balancer Controller already installed, skipping..."
+          else
+            echo "📥 Adding EKS Helm repository..."
+            helm repo add eks https://aws.github.io/eks-charts
+            helm repo update
+            
+            echo "🚀 Installing AWS Load Balancer Controller..."
+            helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+              --namespace kube-system \
+              --set clusterName=${{ env.EKS_CLUSTER_NAME }} \
+              --set serviceAccount.create=true \
+              --set serviceAccount.name=aws-load-balancer-controller \
+              --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=${{ steps.terraform.outputs.lb_controller_role_arn }} \
+              --set region=${{ env.AWS_REGION }} \
+              --set vpcId=${{ steps.terraform.outputs.vpc_id }} \
+              --wait
+            
+            echo "✅ AWS Load Balancer Controller installed"
+          fi
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      # 5. BUILD AND PUSH DOCKER IMAGE
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: 🔐 Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: 🐳 Build, tag, and push Docker image to ECR
+        working-directory: ./app
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "🏗️ Building Docker image..."
+          docker buildx build \
+            --platform linux/amd64 \
+            -t ${{ steps.terraform.outputs.ecr_repo_url }}:latest \
+            -t ${{ steps.terraform.outputs.ecr_repo_url }}:$IMAGE_TAG \
+            --push \
+            .
+          
+          echo "✅ Image pushed to ECR"
+          echo "📦 Image: ${{ steps.terraform.outputs.ecr_repo_url }}:latest"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      # 6. DEPLOY TO KUBERNETES
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: 🔄 Update Kubernetes manifests
+        run: |
+          sed "s|YOUR_ECR_REPO_URL:latest|${{ steps.terraform.outputs.ecr_repo_url }}:latest|g" \
+            k8s/manifest-k8s.yaml > k8s/manifests-deployed.yaml
+          
+          echo "✅ Manifests updated with image URL"
+
+      - name: ☸️ Deploy to Kubernetes
+        run: |
+          echo "📦 Applying Kubernetes manifests..."
+          kubectl apply -f k8s/manifests-deployed.yaml
+          
+          echo "✅ Kubernetes resources deployed"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      # 7. INJECT MONGODB SECRET
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: 🔐 Inject MongoDB URI Secret
+        run: |
+          echo "⏳ Waiting for namespace to be active..."
+          kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/${{ env.K8S_NAMESPACE }} --timeout=30s
+          
+          echo "🔑 Creating/updating secret..."
+          kubectl create secret generic app-secrets \
+            --from-literal=MONGODB_URI="${{ steps.terraform.outputs.mongodb_uri }}" \
+            --namespace=${{ env.K8S_NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo "✅ Secret injected"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      # 8. RESTART DEPLOYMENT
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: 🔄 Restart deployment
+        run: |
+          kubectl rollout restart deployment/todo-app -n ${{ env.K8S_NAMESPACE }}
+          kubectl rollout status deployment/todo-app -n ${{ env.K8S_NAMESPACE }} --timeout=5m
+          
+          echo "✅ Deployment restarted and ready"
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      # 9. WAIT FOR ALB AND GET URL
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: ⏳ Wait for ALB to be ready
+        id: get-alb
+        run: |
+          echo "Waiting for Ingress to get an address..."
+          for i in {1..60}; do
+            ALB_DNS=$(kubectl get ingress todo-app-ingress -n ${{ env.K8S_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+            if [ -n "$ALB_DNS" ]; then
+              echo "✅ ALB created: $ALB_DNS"
+              echo "alb_url=http://$ALB_DNS" >> $GITHUB_OUTPUT
+              break
+            fi
+            echo "Still waiting... ($i/60)"
+            sleep 10
+          done
+          
+          if [ -z "$ALB_DNS" ]; then
+            echo "⚠️ ALB not ready yet. Check with: kubectl get ingress -n ${{ env.K8S_NAMESPACE }}"
+            exit 1
+          fi
+
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      # 10. DEPLOYMENT SUMMARY
+      # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      - name: 📊 Deployment Summary
+        run: |
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Deployment Complete!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "📊 Application Status:"
+          kubectl get pods,svc,ingress -n ${{ env.K8S_NAMESPACE }}
+          echo ""
+          echo "🌐 Application URL: ${{ steps.get-alb.outputs.alb_url }}"
+          echo ""
+          echo "📋 Useful commands:"
+          echo "   kubectl logs -n ${{ env.K8S_NAMESPACE }} -l app=todo-app"
+          echo "   curl ${{ steps.get-alb.outputs.alb_url }}/health"
+          echo "   kubectl describe ingress todo-app-ingress -n ${{ env.K8S_NAMESPACE }}"
+          echo ""
+
+      - name: 🧪 Health Check
+        run: |
+          echo "Testing application health..."
+          sleep 30  # Wait for ALB to be fully ready
+          
+          for i in {1..10}; do
+            if curl -f -s "${{ steps.get-alb.outputs.alb_url }}/health" > /dev/null; then
+              echo "✅ Application is healthy!"
+              curl -s "${{ steps.get-alb.outputs.alb_url }}/health" | jq
+              exit 0
+            fi
+            echo "Waiting for application to be ready... ($i/10)"
+            sleep 10
+          done
+          
+          echo "⚠️ Application health check timed out"
+          exit 1
