@@ -5,13 +5,10 @@ on:
     branches:
       - main
       - develop
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: eu-west-1
   EKS_CLUSTER_NAME: lab-cluster
   ECR_REPOSITORY: todo-app
   KUBERNETES_NAMESPACE: todo-app
@@ -72,7 +69,7 @@ jobs:
           provenance: false
 
       - name: Image digest
-        run: echo "Image digest → ${{ steps.build.outputs.digest }}"
+        run: echo "✅ Image digest → ${{ steps.build.outputs.digest }}"
 
   deploy-to-eks:
     name: Deploy to EKS
@@ -105,7 +102,11 @@ jobs:
             --region ${{ env.AWS_REGION }}
 
       - name: Verify cluster access
-        run: kubectl get nodes
+        run: |
+          echo "🔍 Checking cluster access..."
+          kubectl get nodes
+          echo ""
+          kubectl cluster-info
 
       - name: Prepare manifest with environment variables
         env:
@@ -113,6 +114,11 @@ jobs:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
         run: |
           echo "📝 Preparing manifest-k8s.yaml with environment variables..."
+          
+          # Installer envsubst si nécessaire
+          command -v envsubst >/dev/null 2>&1 || { 
+            sudo apt-get update && sudo apt-get install -y gettext-base
+          }
           
           # Remplacer les variables dans le manifest
           envsubst < k8s/manifest-k8s.yaml > k8s/manifest-k8s-deploy.yaml
@@ -122,44 +128,129 @@ jobs:
           echo "   MongoDB: ${MONGODB_URI%%@*}@***"
           
           echo ""
-          echo "📋 Final manifest (preview):"
-          head -30 k8s/manifest-k8s-deploy.yaml
+          echo "📋 Manifest preview (first 50 lines):"
+          head -50 k8s/manifest-k8s-deploy.yaml
+
+      - name: Check existing deployment
+        run: |
+          echo "🔍 Checking if deployment already exists..."
+          if kubectl get deployment todo-app -n ${{ env.KUBERNETES_NAMESPACE }} 2>/dev/null; then
+            echo "⚠️ Deployment exists, getting current status:"
+            kubectl get deployment todo-app -n ${{ env.KUBERNETES_NAMESPACE }}
+            kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }}
+          else
+            echo "✅ No existing deployment found"
+          fi
 
       - name: Deploy to Kubernetes
         run: |
           echo "🚀 Deploying to Kubernetes using single manifest file..."
-          kubectl apply -f k8s/manifest-k8s.yaml
+          kubectl apply -f k8s/manifest-k8s-deploy.yaml
           
           echo ""
-          echo "⏳ Waiting for deployment to be ready..."
-          kubectl rollout status deployment/todo-app \
-            -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=5m
+          echo "⏳ Waiting 10 seconds for pods to start..."
+          sleep 10
+          
+          echo ""
+          echo "📊 Current deployment status:"
+          kubectl get deployment todo-app -n ${{ env.KUBERNETES_NAMESPACE }}
+          
+          echo ""
+          echo "📦 Current pods:"
+          kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -o wide
+
+      - name: Wait for rollout with diagnostics
+        run: |
+          echo "⏳ Waiting for deployment rollout (timeout: 10m)..."
+          
+          if ! kubectl rollout status deployment/todo-app \
+            -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=10m; then
+            
+            echo ""
+            echo "❌ Deployment rollout failed! Running diagnostics..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            echo ""
+            echo "📊 DEPLOYMENT STATUS:"
+            kubectl get deployment todo-app -n ${{ env.KUBERNETES_NAMESPACE }} -o yaml
+            
+            echo ""
+            echo "📦 PODS STATUS:"
+            kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -o wide
+            
+            echo ""
+            echo "📝 POD DESCRIPTIONS:"
+            kubectl describe pods -n ${{ env.KUBERNETES_NAMESPACE }}
+            
+            echo ""
+            echo "📋 POD LOGS (all pods):"
+            for pod in $(kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -o jsonpath='{.items[*].metadata.name}'); do
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "Logs for pod: $pod"
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              kubectl logs $pod -n ${{ env.KUBERNETES_NAMESPACE }} --tail=100 || echo "No logs available"
+              echo ""
+            done
+            
+            echo ""
+            echo "🔍 RECENT EVENTS:"
+            kubectl get events -n ${{ env.KUBERNETES_NAMESPACE }} \
+              --sort-by='.lastTimestamp' --field-selector type!=Normal | tail -20
+            
+            echo ""
+            echo "🌐 SERVICE STATUS:"
+            kubectl get svc -n ${{ env.KUBERNETES_NAMESPACE }}
+            
+            echo ""
+            echo "🔐 SECRET STATUS:"
+            kubectl get secret app-secrets -n ${{ env.KUBERNETES_NAMESPACE }}
+            
+            exit 1
+          fi
+          
+          echo "✅ Deployment rollout completed successfully!"
 
       - name: Verify deployment
         run: |
-          echo "📊 Pod status:"
-          kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }}
+          echo "📊 Final Pod status:"
+          kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -o wide
           
           echo ""
           echo "🌐 Service status:"
           kubectl get svc -n ${{ env.KUBERNETES_NAMESPACE }}
           
           echo ""
-          echo "🔍 Checking wizexercice.txt in pod:"
-          POD_NAME=$(kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} \
-            -l app=todo-app -o jsonpath='{.items[0].metadata.name}')
-          kubectl exec $POD_NAME -n ${{ env.KUBERNETES_NAMESPACE }} \
-            -- cat /app/wizexercice.txt || echo "⚠️ File check failed"
+          echo "📈 Deployment status:"
+          kubectl get deployment todo-app -n ${{ env.KUBERNETES_NAMESPACE }}
+
+      - name: Check application health
+        run: |
+          echo "🔍 Checking wizexercice.txt in pods..."
+          for pod in $(kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -l app=todo-app -o jsonpath='{.items[*].metadata.name}'); do
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "Pod: $pod"
+            kubectl exec $pod -n ${{ env.KUBERNETES_NAMESPACE }} \
+              -- cat /app/wizexercice.txt || echo "⚠️ File not found in pod $pod"
+            echo ""
+          done
           
           echo ""
-          echo "📝 Pod logs (last 20 lines):"
-          kubectl logs $POD_NAME -n ${{ env.KUBERNETES_NAMESPACE }} --tail=20
+          echo "📝 Recent pod logs (last 30 lines):"
+          kubectl logs -l app=todo-app -n ${{ env.KUBERNETES_NAMESPACE }} --tail=30
 
       - name: Display application info
         run: |
-          echo "✅ Deployment completed successfully!"
           echo ""
-          echo "📦 All resources deployed from: k8s/manifest-k8s.yaml"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ DEPLOYMENT COMPLETED SUCCESSFULLY!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
-          echo "🔗 To get your application URL, run locally:"
+          echo "📦 Deployed from: k8s/manifest-k8s.yaml"
+          echo "🐳 Image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest"
+          echo ""
+          echo "🔗 To get your application URL:"
           echo "   cd terraform && terraform output -raw load_balancer_url"
+          echo ""
+          echo "🔍 To check the app locally:"
+          echo "   kubectl get pods -n todo-app"
+          echo "   kubectl logs -l app=todo-app -n todo-app -f"
