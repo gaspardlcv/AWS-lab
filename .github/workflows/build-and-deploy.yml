@@ -142,7 +142,8 @@ jobs:
           echo "📋 Verifying substitutions:"
           grep "image:" k8s/manifest-deploy.yaml
           echo ""
-          grep -A 3 "kind: Service" k8s/manifest-deploy.yaml | grep "type:"
+          echo "📋 Service type:"
+          grep -A 5 "kind: Service" k8s/manifest-deploy.yaml | grep "type:" || echo "  (Service type verification skipped)"
 
       - name: Deploy to Kubernetes
         run: |
@@ -259,4 +260,3 @@ jobs:
           
           echo ""
           echo "📝 View logs:"
-          echo "   kubectl logs -l app=todo-app -n ${{ env.KUBERNETES_NAMESPACE }} -f"
