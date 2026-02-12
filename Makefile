@@ -75,7 +75,7 @@ vm-ssh-exposed: ## 🔓 Vérifier SSH exposé (0.0.0.0/0)
 	@echo "Security Group Rules (Port 22):"
 	@aws ec2 describe-security-groups \
 		--group-ids $$(aws ec2 describe-instances \
-			--filters "Name=tag:Name,Values=MongoDB-Server-Vulnerable" \
+			--filters "Name=tag:Name,Values=MongoDB-Server-Vulnerable" "Name=instance-state-name,Values=running" \
 			--query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' \
 			--output text --region $(AWS_REGION)) \
 		--region $(AWS_REGION) \
@@ -110,7 +110,7 @@ vm-mongodb-access: ## 🔒 Vérifier accès MongoDB (Kubernetes only)
 	@echo "Security Group Rules (Port 27017):"
 	@aws ec2 describe-security-groups \
 		--group-ids $$(aws ec2 describe-instances \
-			--filters "Name=tag:Name,Values=MongoDB-Server-Vulnerable" \
+			--filters "Name=tag:Name,Values=MongoDB-Server-Vulnerable" "Name=instance-state-name,Values=running" \
 			--query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' \
 			--output text --region $(AWS_REGION)) \
 		--region $(AWS_REGION) \
