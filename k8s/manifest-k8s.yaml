@@ -1,5 +1,4 @@
 ---
-# Namespace
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -8,7 +7,6 @@ metadata:
     name: todo-app
 
 ---
-# Secret avec MongoDB URI
 apiVersion: v1
 kind: Secret
 metadata:
@@ -16,10 +14,9 @@ metadata:
   namespace: todo-app
 type: Opaque
 stringData:
-  MONGODB_URI: "${MONGODB_URI}"
+  MONGODB_URI: "" 
 
 ---
-# Service Account
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -42,7 +39,6 @@ subjects:
   namespace: todo-app
 
 ---
-# Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -63,10 +59,10 @@ spec:
       serviceAccountName: todo-app-sa
       containers:
       - name: todo-app
-        image: ${ECR_IMAGE_LATEST}
+        image: YOUR_ECR_REPO_URL:latest
         imagePullPolicy: Always
         ports:
-        - containerPort: 80
+        - containerPort: 3000
           name: http
         env:
         - name: MONGODB_URI
@@ -84,7 +80,7 @@ spec:
         livenessProbe:
           httpGet:
             path: /health
-            port: 80
+            port: 3000
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
@@ -92,14 +88,14 @@ spec:
         readinessProbe:
           httpGet:
             path: /health
-            port: 80
+            port: 3000
           initialDelaySeconds: 10
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
 
 ---
-# Service (ClusterIP)
+# Service ClusterIP (PAS NodePort)
 apiVersion: v1
 kind: Service
 metadata:
@@ -113,30 +109,31 @@ spec:
     app: todo-app
   ports:
   - port: 80
-    targetPort: 80
+    targetPort: 3000
     protocol: TCP
     name: http
 
 ---
-# Ingress - Crée automatiquement l'ALB
+# Ingress
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: todo-app-ingress
   namespace: todo-app
   annotations:
-    # AWS Load Balancer Controller
-    kubernetes.io/ingress.class: alb
+    # Configuration AWS Load Balancer Controller
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
+    alb.ingress.kubernetes.io/success-codes: '200'
     alb.ingress.kubernetes.io/healthy-threshold-count: '2'
     alb.ingress.kubernetes.io/unhealthy-threshold-count: '2'
     # Tags pour l'ALB
-    alb.ingress.kubernetes.io/tags: Environment=lab,Application=todo-app
+    alb.ingress.kubernetes.io/tags: Environment=lab,ManagedBy=kubernetes
 spec:
+  ingressClassName: alb
   rules:
   - http:
       paths:
