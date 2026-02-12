@@ -172,7 +172,7 @@ cat > /usr/local/bin/mongodb-backup.sh <<'BACKUP'
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 mongodump -u admin -p '${random_password.mongodb_password.result}' --authenticationDatabase admin --out /tmp/backup-$TIMESTAMP
 tar -czf /tmp/mongodb-backup-$TIMESTAMP.tar.gz -C /tmp backup-$TIMESTAMP
-aws s3 cp /tmp/mongodb-backup-$TIMESTAMP.tar.gz s3://${aws_s3_bucket.backups.id}/ --region eu-west-1
+aws s3 cp /tmp/mongodb-backup-$TIMESTAMP.tar.gz s3://${aws_s3_bucket.backups.id}/ --region us-east-1
 rm -rf /tmp/backup-$TIMESTAMP /tmp/mongodb-backup-$TIMESTAMP.tar.gz
 echo "Backup completed: $TIMESTAMP" >> /var/log/mongodb-backup.log
 BACKUP
