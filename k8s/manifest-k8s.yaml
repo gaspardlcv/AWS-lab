@@ -99,7 +99,7 @@ spec:
           failureThreshold: 3
 
 ---
-# Service (NodePort)
+# Service (ClusterIP)
 apiVersion: v1
 kind: Service
 metadata:
@@ -108,12 +108,42 @@ metadata:
   labels:
     app: todo-app
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: todo-app
   ports:
   - port: 80
     targetPort: 80
-    nodePort: 30080
     protocol: TCP
     name: http
+
+---
+# Ingress - Crée automatiquement l'ALB
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-app-ingress
+  namespace: todo-app
+  annotations:
+    # AWS Load Balancer Controller
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
+    alb.ingress.kubernetes.io/healthy-threshold-count: '2'
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: '2'
+    # Tags pour l'ALB
+    alb.ingress.kubernetes.io/tags: Environment=lab,Application=todo-app
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: todo-app-service
+            port:
+              number: 80

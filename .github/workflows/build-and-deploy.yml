@@ -1,0 +1,262 @@
+name: Build and Deploy Application
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: lab-cluster
+  ECR_REPOSITORY: todo-app
+  KUBERNETES_NAMESPACE: todo-app
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    
+    outputs:
+      image-url: ${{ steps.build.outputs.image-url }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./app
+          file: ./app/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Set image URL output
+        id: set-image
+        run: |
+          IMAGE_URL="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest"
+          echo "image-url=$IMAGE_URL" >> $GITHUB_OUTPUT
+          echo "✅ Image URL: $IMAGE_URL"
+
+  deploy-to-eks:
+    name: Deploy to EKS
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ env.EKS_CLUSTER_NAME }} \
+            --region ${{ env.AWS_REGION }}
+          
+          echo "✅ kubectl configured"
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Verify Load Balancer Controller
+        run: |
+          echo "🔍 Checking if AWS Load Balancer Controller is installed..."
+          
+          if kubectl get deployment aws-load-balancer-controller -n kube-system &>/dev/null; then
+            echo "✅ AWS Load Balancer Controller is installed"
+            kubectl get deployment aws-load-balancer-controller -n kube-system
+          else
+            echo "❌ AWS Load Balancer Controller NOT found!"
+            echo ""
+            echo "Please run the 'Setup AWS Load Balancer Controller' workflow first:"
+            echo "  Actions → Setup AWS Load Balancer Controller → Run workflow"
+            exit 1
+          fi
+
+      - name: Prepare Kubernetes manifest
+        env:
+          ECR_IMAGE_LATEST: ${{ needs.build-and-push.outputs.image-url }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        run: |
+          echo "📝 Preparing Kubernetes manifest..."
+          
+          # Substituer les variables dans le manifest
+          sed -e "s|\${ECR_IMAGE_LATEST}|${ECR_IMAGE_LATEST}|g" \
+              -e "s|\${MONGODB_URI}|${MONGODB_URI}|g" \
+              k8s/manifest-k8s.yaml > k8s/manifest-deploy.yaml
+          
+          echo "✅ Manifest prepared"
+          echo "   Image: $ECR_IMAGE_LATEST"
+          echo "   MongoDB: ${MONGODB_URI%%@*}@***"
+          
+          echo ""
+          echo "📋 Verifying substitutions:"
+          grep "image:" k8s/manifest-deploy.yaml
+          echo ""
+          grep -A 3 "kind: Service" k8s/manifest-deploy.yaml | grep "type:"
+
+      - name: Deploy to Kubernetes
+        run: |
+          echo "🚀 Deploying application to Kubernetes..."
+          kubectl apply -f k8s/manifest-deploy.yaml
+          
+          echo ""
+          echo "⏳ Waiting for resources to be created..."
+          sleep 10
+          
+          echo ""
+          echo "📊 Deployment status:"
+          kubectl get deployment todo-app -n ${{ env.KUBERNETES_NAMESPACE }} || true
+          
+          echo ""
+          echo "📦 Pods:"
+          kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -o wide || true
+          
+          echo ""
+          echo "🌐 Service:"
+          kubectl get svc -n ${{ env.KUBERNETES_NAMESPACE }}
+          
+          echo ""
+          echo "🔗 Ingress:"
+          kubectl get ingress -n ${{ env.KUBERNETES_NAMESPACE }}
+
+      - name: Wait for deployment rollout
+        run: |
+          echo "⏳ Waiting for deployment rollout..."
+          
+          if ! kubectl rollout status deployment/todo-app \
+            -n ${{ env.KUBERNETES_NAMESPACE }} --timeout=10m; then
+            
+            echo ""
+            echo "❌ Deployment failed! Running diagnostics..."
+            
+            echo ""
+            echo "📦 Pods:"
+            kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -o wide
+            
+            echo ""
+            echo "📝 Pod logs:"
+            for pod in $(kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -l app=todo-app -o jsonpath='{.items[*].metadata.name}'); do
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "Logs for: $pod"
+              kubectl logs $pod -n ${{ env.KUBERNETES_NAMESPACE }} --tail=50 || true
+            done
+            
+            echo ""
+            echo "🔍 Events:"
+            kubectl get events -n ${{ env.KUBERNETES_NAMESPACE }} --sort-by='.lastTimestamp' | tail -20
+            
+            exit 1
+          fi
+          
+          echo "✅ Deployment successful!"
+
+      - name: Wait for Ingress ALB
+        run: |
+          echo "⏳ Waiting for Ingress to provision ALB..."
+          echo "   (This takes 2-3 minutes)"
+          
+          for i in {1..60}; do
+            ALB_URL=$(kubectl get ingress todo-app-ingress -n ${{ env.KUBERNETES_NAMESPACE }} \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+            
+            if [ ! -z "$ALB_URL" ]; then
+              echo ""
+              echo "✅ ALB provisioned!"
+              echo "   URL: http://$ALB_URL"
+              break
+            fi
+            
+            if [ $((i % 6)) -eq 0 ]; then
+              echo "Still waiting... ($((i*5)) seconds elapsed)"
+            fi
+            sleep 5
+          done
+
+      - name: Display deployment info
+        run: |
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ DEPLOYMENT COMPLETED"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          echo ""
+          echo "📦 Pods:"
+          kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }} -o wide
+          
+          echo ""
+          echo "🌐 Service:"
+          kubectl get svc -n ${{ env.KUBERNETES_NAMESPACE }}
+          
+          echo ""
+          echo "🔗 Ingress:"
+          kubectl get ingress -n ${{ env.KUBERNETES_NAMESPACE }}
+          
+          echo ""
+          echo "🌍 Application URL:"
+          ALB_URL=$(kubectl get ingress todo-app-ingress -n ${{ env.KUBERNETES_NAMESPACE }} \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Pending...")
+          
+          if [ "$ALB_URL" != "Pending..." ]; then
+            echo "   http://$ALB_URL"
+            echo ""
+            echo "🧪 Test commands:"
+            echo "   curl http://$ALB_URL/health"
+            echo "   curl http://$ALB_URL/api/todos"
+          else
+            echo "   ⏳ ALB still provisioning"
+            echo "   Check status: kubectl get ingress -n ${{ env.KUBERNETES_NAMESPACE }}"
+          fi
+          
+          echo ""
+          echo "📝 View logs:"
+          echo "   kubectl logs -l app=todo-app -n ${{ env.KUBERNETES_NAMESPACE }} -f"
