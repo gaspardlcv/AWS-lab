@@ -128,7 +128,7 @@ jobs:
       - name: Deploy to Kubernetes
         run: |
           echo "🚀 Deploying to Kubernetes using single manifest file..."
-          kubectl apply -f k8s/manifest-k8s-deploy.yaml
+          kubectl apply -f k8s/manifest-k8s.yaml
           
           echo ""
           echo "⏳ Waiting for deployment to be ready..."
