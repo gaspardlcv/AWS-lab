@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: eu-west-1
+  AWS_REGION: us-east-1
   EKS_CLUSTER_NAME: lab-cluster
   ECR_REPOSITORY: todo-app
   KUBERNETES_NAMESPACE: todo-app
