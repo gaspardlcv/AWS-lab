@@ -36,11 +36,19 @@ resource "aws_secretsmanager_secret" "mongodb_uri" {
   }
 }
 
+
+locals {
+  mongodb_user           = "admin"
+  mongodb_password_raw   = random_password.mongodb_password.result
+  mongodb_password_enc   = urlencode(local.mongodb_password_raw) # <-- encodage (ex: @ -> %40, + -> %2B, etc.)
+  mongodb_uri_value      = "mongodb://${local.mongodb_user}:${local.mongodb_password_enc}@${aws_instance.mongodb.private_ip}:27017/"
+}
+
 # Stocker la valeur du secret
 resource "aws_secretsmanager_secret_version" "mongodb_uri" {
-  secret_id     = aws_secretsmanager_secret.mongodb_uri.id
+  secret_id = aws_secretsmanager_secret.mongodb_uri.id
   secret_string = jsonencode({
-    MONGODB_URI = "mongodb://admin:P%40ssw0rd123@${aws_instance.mongodb.private_ip}:27017/"
+    MONGODB_URI = local.mongodb_uri_value
   })
 }
 
