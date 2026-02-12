@@ -43,45 +43,62 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      # 3. SETUP TERRAFORM (pour récupérer les outputs)
+      # 3. GET INFRASTRUCTURE INFO FROM AWS
       # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      - name: 🔧 Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.0
-          terraform_wrapper: false
-
-      - name: 📊 Get Terraform Outputs
+      - name: 📊 Get Infrastructure Info from AWS
         id: terraform
-        working-directory: ./terraform
         run: |
-          terraform init -backend=false
+          echo "🔍 Récupération des informations d'infrastructure depuis AWS..."
           
-          # Récupérer les outputs depuis le tfstate distant ou local
-          # Note: Vous devrez configurer le backend S3 pour la production
+          # Récupérer directement depuis AWS (pas de tfstate disponible)
+          ECR_REPO_URL=$(aws ecr describe-repositories \
+            --repository-names ${{ env.ECR_REPOSITORY }} \
+            --query 'repositories[0].repositoryUri' \
+            --output text \
+            --region ${{ env.AWS_REGION }})
           
-          # Pour l'instant, on utilise les outputs terraform
-          MONGODB_URI=$(terraform output -raw mongodb_uri 2>/dev/null || echo "")
-          ECR_REPO_URL=$(terraform output -raw ecr_repository_url 2>/dev/null || echo "")
-          LB_CONTROLLER_ROLE_ARN=$(terraform output -raw lb_controller_role_arn 2>/dev/null || echo "")
-          VPC_ID=$(terraform output -raw vpc_id 2>/dev/null || echo "")
+          LB_CONTROLLER_ROLE_ARN=$(aws iam get-role \
+            --role-name aws-load-balancer-controller \
+            --query 'Role.Arn' \
+            --output text 2>/dev/null || echo "")
           
-          # Si terraform output échoue, récupérer directement depuis AWS
+          VPC_ID=$(aws ec2 describe-vpcs \
+            --filters "Name=tag:Name,Values=wiz-vpc" \
+            --query 'Vpcs[0].VpcId' \
+            --output text \
+            --region ${{ env.AWS_REGION }})
+          
+          # Récupérer MONGODB_URI depuis Secrets Manager
+          MONGODB_URI=$(aws secretsmanager get-secret-value \
+            --secret-id lab-mongodb-uri \
+            --query SecretString \
+            --output text \
+            --region ${{ env.AWS_REGION }} | jq -r '.MONGODB_URI')
+          
+          # Vérifier que les valeurs sont récupérées
           if [ -z "$ECR_REPO_URL" ]; then
-            ECR_REPO_URL=$(aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} --query 'repositories[0].repositoryUri' --output text --region ${{ env.AWS_REGION }})
-          fi
-          
-          if [ -z "$LB_CONTROLLER_ROLE_ARN" ]; then
-            LB_CONTROLLER_ROLE_ARN=$(aws iam get-role --role-name aws-load-balancer-controller --query 'Role.Arn' --output text 2>/dev/null || echo "")
+            echo "❌ ECR Repository not found"
+            exit 1
           fi
           
           if [ -z "$VPC_ID" ]; then
-            VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=wiz-vpc" --query 'Vpcs[0].VpcId' --output text --region ${{ env.AWS_REGION }})
+            echo "❌ VPC not found"
+            exit 1
           fi
           
-          # Récupérer MONGODB_URI depuis Secrets Manager
           if [ -z "$MONGODB_URI" ]; then
-            MONGODB_URI=$(aws secretsmanager get-secret-value --secret-id lab-mongodb-uri --query SecretString --output text --region ${{ env.AWS_REGION }} | jq -r '.MONGODB_URI')
+            echo "❌ MongoDB URI not found in Secrets Manager"
+            exit 1
+          fi
+          
+          echo "✅ ECR Repository: $ECR_REPO_URL"
+          echo "✅ VPC ID: $VPC_ID"
+          echo "✅ MongoDB URI: Retrieved from Secrets Manager"
+          
+          if [ -n "$LB_CONTROLLER_ROLE_ARN" ]; then
+            echo "✅ LB Controller Role: $LB_CONTROLLER_ROLE_ARN"
+          else
+            echo "⚠️  LB Controller Role not found (will be created during installation)"
           fi
           
           echo "ecr_repo_url=$ECR_REPO_URL" >> $GITHUB_OUTPUT
