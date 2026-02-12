@@ -10,7 +10,7 @@ resource "aws_iam_policy" "lb_controller" {
   policy      = data.http.lb_controller_iam_policy.response_body
 }
 
-#  IAM Role pour le Service Account
+#  IAM Role pour le Service Account 
 module "lb_controller_irsa" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "~> 5.0"
