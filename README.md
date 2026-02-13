@@ -1,104 +1,49 @@
-# AWS-lab
-
-# Constraints
+#### AWS-lab Gaspard
 
 **Reference Diagram:**
 ![diagram](./content/image.png)
 
-export AWS_DEFAULT_REGION="us-west-2"
+###  Deploy project
 
-nano ~/.aws/credentials
+## Step 1 : Launch Infra
+Get Credentials AWS
+Terraform init / plan / apply
 
-aws sts get-caller-identity
+## Step 2 : Deploy App in EKS + ALB
+Either deploy :
+- with shell deploy-with-ingress.sh
+- with Action Github deploy-app
 
-terraform init
-terraform plan
-terraform apply
+### Demo with Makefile
 
-Vérification fichier docker
+# Some Commands available 
+make help
 
-3.4 Vérification du fichier dans le container
-Ajoutez cette section dans votre documentation/présentation :
-bash# Méthode 1 : Vérifier lors du build
-docker build -t todo-app .
-docker run --rm todo-app cat /app/wizexercise.txt
-
-# Méthode 2 : Vérifier dans le pod Kubernetes en production
-kubectl exec -it <pod-name> -- cat /app/wizexercise.txt
-
-# Déploiement Terraform 
-
-cd terraform
-terraform init
-terraform apply
-cd ..
-
-# Récupérez les variables d'environnement 
-
-# 1. Générer le fichier .env depuis Terraform
-./scripts/get-tf-vars-env.sh
-
-# 2. Charger les variables dans votre session
-source .env
-
-# Montrer les variables d'environnement
-cat .env
-
-# 3. Vérifier que ça fonctionne
-echo $MONGODB_URI
-echo $ECR_IMAGE_LATEST
-
-# 4. Faire le déploiement du Docker
-./scripts/deploy.sh
-
-kubectl get nodes
-
-# Vérifier wizexercise.txt
-POD=$(kubectl get pod -n todo-app -l app=todo-app -o jsonpath='{.items[0].metadata.name}')
-kubectl exec -it $POD -n todo-app -- cat /app/wizexercice.txt
-
-# Accéder à l'application
-curl $LOAD_BALANCER_URL
-
-# Vérifier la connexion Front END - MongoDB
-curl http://$LOAD_BALANCER_URL/api/todos | jq
-
-aws ecr batch-delete-image \
-  --repository-name todo-app \
-  --region eu-west-1 \
-  --image-ids imageTag=latest
-
-kubectl delete namespace todo-app 
-
-
-
-### Démo 
-
-# 1. Vérifier que tout fonctionne
+# Verify everything working
 make check-prereq
 
-# 2. Tester la démo complète
+# Test whole demo
 make demo-all
-make info           # Montrer l'infrastructure
-make check-prereq   # Vérifier que tout est OK
-make demo-vm # mongodb
-make demo-k8s #demo-app
+make info           # show infrastructure
+make demo-vm        # mongodb
+make demo-k8s       #demo-app
 make demo-vulns 
-# Avoir le terminal prêt pour des commandes ad-hoc
-make shell-pod     # Si on vous demande de montrer l'intérieur d'un pod
-make ssh-mongodb   # Si on vous demande d'accéder à MongoDB
-# Vérifier version MongoDB
+
+# Command Inside VMs
+make shell-pod     # POD
+make ssh-mongodb   # MongoDB
+
+# Version MongoDB
 make vm-mongodb-version
 
-# Montrer le fichier wizexercice.txt
+# Show wizexercice.txt
 make k8s-wizexercice
 
-# Créer un todo pendant la démo
+# Create entry for DB
 make app-create-todo
 
-# Montrer l'exploitation S3
+# Show S3 public
 make vuln-s3-public-demo
 
-# Montrer la chaîne d'attaque
+# Show attack path
 make vuln-exploit-chain
-
