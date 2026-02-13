@@ -20,6 +20,7 @@ resource "aws_s3_bucket_public_access_block" "backups" {
   restrict_public_buckets = false
 }
 
+# Politique de bucket publique - VULNÉRABILITÉ
 resource "aws_s3_bucket_policy" "backups_public" {
   bucket = aws_s3_bucket.backups.id
 
